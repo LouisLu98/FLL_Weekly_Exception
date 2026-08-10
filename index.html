@@ -1,1 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLL Weekly Exception Analysis</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#1a1f24; --muted:#6b7580;
+    --line:#e3e7eb; --accent:#0f6e6a; --accent-soft:#e3f1f0;
+    --pod:#2f6fb0; --pod-soft:#e6eef7;
+    --intr:#c8842a; --intr-soft:#f8efe1;
+    --viol:#b13b3b; --viol-soft:#f7e6e6;
+    --warn3:#b13b3b; --warn3-soft:#fbe7e7;
+    --warn2:#c8842a; --warn2-soft:#f9efe0;
+    --radius:10px;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1280px;margin:0 auto;padding:24px 20px 80px}
+  header.top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+  header.top h1{font-size:20px;font-weight:650;margin:0;letter-spacing:.2px}
+  header.top .sub{color:var(--muted);font-size:13px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-top:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:650;margin:0 0 14px}
 
+  /* upload */
+  .drop{border:1.5px dashed var(--line);border-radius:var(--radius);padding:22px;text-align:center;cursor:pointer;transition:.15s;background:#fafbfc}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:var(--accent-soft)}
+  .drop strong{color:var(--accent)}
+  .drop small{display:block;color:var(--muted);margin-top:6px}
+  .meta{display:flex;gap:22px;flex-wrap:wrap;align-items:center;margin-top:14px;font-size:13px}
+  .meta .pill{background:var(--accent-soft);color:var(--accent);padding:3px 10px;border-radius:20px;font-weight:600}
+  .meta .wk{background:#eef1f4;color:var(--ink);padding:2px 8px;border-radius:5px;font-family:var(--mono);font-size:12px}
+  button{font-family:inherit;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 13px;border-radius:7px;cursor:pointer;transition:.12s}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.danger:hover{border-color:var(--viol);color:var(--viol)}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  button.primary:hover{background:#0b5652;color:#fff}
+
+  /* controls */
+  .controls{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end}
+  .ctl{display:flex;flex-direction:column;gap:5px}
+  .ctl label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600}
+  select,input[type=text]{font-family:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);min-width:110px}
+  .range-sep{padding:0 4px 7px;color:var(--muted)}
+  .toggle{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink);cursor:pointer;user-select:none;padding-bottom:6px}
+
+  /* tabs */
+  .tabs{display:flex;gap:4px;margin-top:20px;border-bottom:1px solid var(--line)}
+  .tab{padding:9px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* table */
+  .tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin-top:16px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+  th,td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  thead th{background:#f7f9fa;font-weight:650;position:sticky;top:0;z-index:2}
+  thead tr.grp th{text-align:center;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+  thead tr.sub th{font-size:11px;font-weight:600;text-align:center}
+  tbody tr:hover{background:#fafbfc}
+  td.num,th.num{text-align:center;font-family:var(--mono);font-size:12.5px}
+  td.zero{color:#c3cad1}
+  td.tot{font-weight:700;font-family:var(--mono);background:#fbfcfd}
+  .clk{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;text-decoration-color:#b8c2cb}
+  .clk:hover{background:var(--accent-soft);color:var(--accent);text-decoration-color:var(--accent)}
+  .col-pod{background:var(--pod-soft)}
+  .col-intr{background:var(--intr-soft)}
+  .col-viol{background:var(--viol-soft)}
+  th.col-pod{color:var(--pod)} th.col-intr{color:var(--intr)} th.col-viol{color:var(--viol)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .b3{background:var(--warn3-soft);color:var(--warn3)}
+  .b2{background:var(--warn2-soft);color:var(--warn2)}
+  .dsp-cell{font-weight:600}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+
+  /* dsp cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin-top:16px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:16px 17px;background:#fff}
+  .card .chead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px}
+  .card .chead .name{font-size:15px;font-weight:700}
+  .card .chead .cnt{font-family:var(--mono);color:var(--muted);font-size:12px}
+  .toproute{display:inline-flex;align-items:center;gap:5px;background:var(--viol-soft);color:var(--viol);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:650;margin-bottom:12px;cursor:pointer}
+  .toproute:hover{filter:brightness(.96)}
+  .toproute b{font-family:var(--mono)}
+  .stack{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:4px 0 10px;background:#eef1f4}
+  .stack i{display:block;height:100%}
+  .catrow{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:3px 0}
+  .catrow .dot{width:9px;height:9px;border-radius:2px;flex:none}
+  .catrow .lbl{flex:1}
+  .catrow .v{font-family:var(--mono);color:var(--muted)}
+  .breakdown{margin-top:12px;border-top:1px dashed var(--line);padding-top:11px}
+  .breakdown .btitle{font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:7px}
+  .breakdown.pod .btitle{color:var(--pod)} .breakdown.intr .btitle{color:var(--intr)}
+  .brow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:5px 0}
+  .brow .bar{grid-column:1/3;height:5px;background:#eef1f4;border-radius:3px;overflow:hidden;margin-top:2px}
+  .brow .bar i{display:block;height:100%}
+  .brow .rt{font-size:12px;line-height:1.35;white-space:normal}
+  .brow .rv{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+  .pod .bar i{background:var(--pod)} .intr .bar i{background:var(--intr)}
+
+  /* route bar (key route + route view button) */
+  .routebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .routebar .toproute{margin-bottom:0}
+  .rvbtn{font-size:11px;font-weight:650;padding:3px 11px;border-radius:20px;border:1px solid var(--accent);color:var(--accent);background:var(--accent-soft);cursor:pointer;white-space:nowrap;line-height:1.6}
+  .rvbtn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  /* route view modal */
+  .modal.wide{width:min(620px,100%)}
+  .rvrow{padding:11px 18px;border-bottom:1px solid #f2f4f6}
+  .rvrow:hover{background:#fbfcfd}
+  .rvhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;cursor:pointer;border-radius:6px;padding:2px 4px;margin:-2px -4px}
+  .rvhead:hover{background:var(--accent-soft)}
+  .rvhead .rvname{font-family:var(--mono);font-size:13px;font-weight:650;color:var(--ink)}
+  .rvhead:hover .rvname{color:var(--accent)}
+  .rvhead .rvtot{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--muted)}
+  .rvstack{display:flex;height:9px;border-radius:5px;overflow:hidden;margin:7px 0;background:#eef1f4}
+  .rvstack i{display:block;height:100%}
+  .rvchips{display:flex;gap:6px;flex-wrap:wrap}
+  .rvchip{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;cursor:pointer;white-space:nowrap;border:1px solid transparent}
+  .rvchip.pod{background:var(--pod-soft);color:var(--pod)}
+  .rvchip.intr{background:var(--intr-soft);color:var(--intr)}
+  .rvchip.viol{background:var(--viol-soft);color:var(--viol)}
+  .rvchip:hover{border-color:currentColor;filter:brightness(.97)}
+
+  /* by-driver button (on each category row) + driver breakdown rows */
+  .catrow .drvbtn{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;white-space:nowrap;line-height:1.5}
+  .catrow .drvbtn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .rvhead .rvname.txt{font-family:var(--sans);font-weight:650}
+  .rvbar{height:6px;background:#eef1f4;border-radius:3px;overflow:hidden;margin-top:7px}
+  .rvbar i{display:block;height:100%}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .footnote{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.6}
+  .hidden{display:none}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(20,26,32,.42);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal{background:#fff;border-radius:12px;width:min(460px,100%);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden}
+  .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--line)}
+  .modal .mhead .mtitle{font-size:14px;font-weight:700;line-height:1.35}
+  .modal .mhead .mcount{font-size:12px;color:var(--muted);margin-top:3px}
+  .modal .mlist{overflow:auto;padding:6px 0;flex:1}
+  .wbrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 18px;font-family:var(--mono);font-size:12.5px;cursor:pointer;border-bottom:1px solid #f2f4f6}
+  .wbrow:hover{background:var(--accent-soft)}
+  .wbrow .wbmeta{font-family:var(--sans);font-size:11px;color:var(--muted);white-space:nowrap}
+  .wbrow .cptag{font-family:var(--sans);font-size:10px;color:var(--accent);opacity:0;font-weight:600}
+  .wbrow:hover .cptag{opacity:1}
+  .modal .mfoot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;align-items:center}
+  .modal .mfoot .hint{margin-right:auto;font-size:11px;color:var(--muted)}
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;z-index:60;opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>FLL Weekly Exception Analysis</h1>
+    <span class="sub">DSP / Driver Exception Tracking · Fake POD · Interruption · Violent</span>
+  </header>
+
+  <!-- Data -->
+  <div class="panel">
+    <h2>Data</h2>
+    <div class="drop" id="drop">
+      <strong>Click or drag to upload Excel</strong> (.xlsx)
+      <small>Incremental update supported: multiple uploads merge automatically, de-duplicated by Waybill + Week + Exception type. Data is stored locally in this browser.</small>
+      <input type="file" id="file" accept=".xlsx,.xls" class="hidden" multiple>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+
+  <!-- Filters -->
+  <div class="panel hidden" id="ctlPanel">
+    <h2>Filters</h2>
+    <div class="controls">
+      <div class="ctl">
+        <label>Week from</label>
+        <select id="wkFrom"></select>
+      </div>
+      <span class="range-sep">—</span>
+      <div class="ctl">
+        <label>Week to</label>
+        <select id="wkTo"></select>
+      </div>
+      <div class="ctl">
+        <label>DSP</label>
+        <select id="dspFilter"><option value="">All</option></select>
+      </div>
+      <div class="ctl">
+        <label>Search driver</label>
+        <input type="text" id="drvSearch" placeholder="Driver name…">
+      </div>
+      <label class="toggle"><input type="checkbox" id="onlyFlag"> Show streak drivers only</label>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--pod)"></i>Fake POD</span>
+      <span><i style="background:var(--intr)"></i>Interruption</span>
+      <span><i style="background:var(--viol)"></i>Violent</span>
+      <span><span class="badge b3">3-week streak</span></span>
+      <span><span class="badge b2">2-week streak</span></span>
+      <span style="color:var(--accent)">Tip: click any number to view &amp; copy its waybills</span>
+    </div>
+  </div>
+
+  <div class="tabs hidden" id="tabs">
+    <div class="tab active" data-tab="driver">① Driver View · Streak Tracking</div>
+    <div class="tab" data-tab="dsp">② DSP View · Category Breakdown &amp; Key Route</div>
+  </div>
+
+  <!-- View 1: Driver -->
+  <div id="viewDriver">
+    <div class="controls" style="margin-top:16px">
+      <div class="ctl">
+        <label>DSP (this view)</label>
+        <select id="drvDspFilter"><option value="">All</option></select>
+      </div>
+    </div>
+    <div class="tblwrap"><table id="driverTable"></table></div>
+    <div class="footnote" id="driverNote"></div>
+  </div>
+
+  <!-- View 2: DSP -->
+  <div id="viewDsp" class="hidden">
+    <div class="cards" id="dspCards"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ Constants & state ============ */
+const CATS = ["Fake POD","Interruption","Violent"];
+const CAT_KEY = {"Fake POD":"pod","Interruption":"intr","Violent":"viol"};
+const STORE_KEY = "fll_weekly_exception_rows_v1";
+let ROWS = [];
+let ALL_WEEKS = [];
+
+/* ============ Helpers ============ */
+const norm = s => (s==null?"":String(s)).replace(/\s+/g," ").trim();
+const weekNum = w => { const m = String(w).match(/(\d+)/); return m?parseInt(m[1],10):NaN; };
+const weekLabel = n => "W"+n;
+const escapeHtml = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const enc = o => encodeURIComponent(JSON.stringify(o));
+
+function categorize(result){
+  const r = norm(result).toLowerCase();
+  if(r.includes("fake")) return "Fake POD";
+  if(r.includes("interrupt")) return "Interruption";
+  if(r.includes("violent")) return "Violent";
+  return null;
+}
+function pick(headers, candidates){
+  const low = headers.map(h => norm(h).toLowerCase());
+  for(const c of candidates){ const i = low.indexOf(c.toLowerCase()); if(i>=0) return headers[i]; }
+  for(const c of candidates){ const i = low.findIndex(h => h.includes(c.toLowerCase())); if(i>=0) return headers[i]; }
+  return null;
+}
+
+/* ============ Read Excel ============ */
+function parseWorkbook(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const json = XLSX.utils.sheet_to_json(ws, {defval:null, raw:false});
+  if(!json.length) return [];
+  const headers = Object.keys(json[0]);
+  const H = {
+    week:   pick(headers,["Week"]),
+    result: pick(headers,["Result"]),
+    dsp:    pick(headers,["Registration Authority","DSP"]),
+    route:  pick(headers,["Route"]),
+    waybill:pick(headers,["waybill number","Waybill number","Waybill"]),
+    driver: pick(headers,["Person in charge","Driver"]),
+    podReason: pick(headers,["Non-compliant POD Reason"]),
+    lastNode:  pick(headers,["Last operation node"])
+  };
+  const out=[];
+  for(const r of json){
+    const cat = categorize(r[H.result]);
+    if(!cat) continue;
+    const wn = weekNum(r[H.week]);
+    if(isNaN(wn)) continue;
+    out.push({
+      wn, week: weekLabel(wn), cat,
+      dsp: norm(r[H.dsp]) || "(Unknown DSP)",
+      route: norm(r[H.route]) || "(none)",
+      driver: norm(r[H.driver]) || "(Unknown driver)",
+      waybill: norm(r[H.waybill]) || "(no waybill)",
+      podReason: norm(r[H.podReason]) || "(blank)",
+      lastNode: norm(r[H.lastNode]) || "(blank)"
+    });
+  }
+  return out;
+}
+
+function mergeRows(newRows){
+  const map = new Map();
+  const keyOf = r => r.waybill+"|"+r.week+"|"+r.cat+"|"+r.driver;
+  for(const r of ROWS) map.set(keyOf(r), r);
+  let added=0;
+  for(const r of newRows){ const k = keyOf(r); if(!map.has(k)) added++; map.set(k, r); }
+  ROWS = [...map.values()];
+  saveStore();
+  return added;
+}
+function saveStore(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(ROWS)); }catch(e){} }
+function loadStore(){ try{ const s=localStorage.getItem(STORE_KEY); if(s) ROWS=JSON.parse(s); }catch(e){ ROWS=[]; } }
+
+/* ============ Meta & selectors ============ */
+function refreshWeeks(){ ALL_WEEKS = [...new Set(ROWS.map(r=>r.wn))].sort((a,b)=>a-b); }
+
+function renderMeta(){
+  const meta = document.getElementById("meta");
+  if(!ROWS.length){ meta.innerHTML=""; return; }
+  const wkTxt = ALL_WEEKS.map(weekLabel).map(w=>`<span class="wk">${w}</span>`).join(" ");
+  const dspN = new Set(ROWS.map(r=>r.dsp)).size;
+  const drvN = new Set(ROWS.map(r=>r.driver)).size;
+  meta.innerHTML =
+    `<span class="pill">${ROWS.length} exceptions</span>`+
+    `<span>Weeks: ${wkTxt}</span>`+
+    `<span>DSP: <b>${dspN}</b></span>`+
+    `<span>Drivers: <b>${drvN}</b></span>`+
+    `<button class="danger" id="clearBtn">Clear data</button>`;
+  document.getElementById("clearBtn").onclick = ()=>{
+    if(confirm("Clear all uploaded data? This cannot be undone.")){ ROWS=[]; saveStore(); boot(); }
+  };
+}
+
+function populateSelectors(){
+  const from = document.getElementById("wkFrom");
+  const to   = document.getElementById("wkTo");
+  const dsp  = document.getElementById("dspFilter");
+  const prevFrom = from.value, prevTo = to.value, prevDsp = dsp.value;
+  from.innerHTML = to.innerHTML = "";
+  ALL_WEEKS.forEach(n=>{ from.add(new Option(weekLabel(n), n)); to.add(new Option(weekLabel(n), n)); });
+  from.value = ALL_WEEKS.length ? (prevFrom && ALL_WEEKS.includes(+prevFrom)?prevFrom:ALL_WEEKS[0]) : "";
+  to.value   = ALL_WEEKS.length ? (prevTo && ALL_WEEKS.includes(+prevTo)?prevTo:ALL_WEEKS[ALL_WEEKS.length-1]) : "";
+  const dsps = [...new Set(ROWS.map(r=>r.dsp))].sort();
+  dsp.innerHTML = '<option value="">All</option>';
+  dsps.forEach(d=> dsp.add(new Option(d,d)));
+  if(prevDsp && dsps.includes(prevDsp)) dsp.value = prevDsp;
+}
+
+function selectedWeeks(){
+  let a = +document.getElementById("wkFrom").value;
+  let b = +document.getElementById("wkTo").value;
+  if(isNaN(a)||isNaN(b)) return [];
+  if(a>b) [a,b]=[b,a];
+  return ALL_WEEKS.filter(n=>n>=a && n<=b);
+}
+function filteredRows(){
+  const wks = new Set(selectedWeeks());
+  const dsp = document.getElementById("dspFilter").value;
+  return ROWS.filter(r => wks.has(r.wn) && (!dsp || r.dsp===dsp));
+}
+
+/* ============ View 1: Driver ============ */
+/* Current streak = consecutive problem weeks ending at the LATEST week in range.
+   Any clean week (no exceptions) breaks it — a driver who goes a full week
+   without problems loses the streak label, even if he had a long streak before. */
+function currentStreak(problemWeeks, orderedWeeks){
+  let run=0;
+  for(let i=orderedWeeks.length-1; i>=0; i--){
+    const w = orderedWeeks[i];
+    if(!problemWeeks.has(w)) break;                // clean week -> streak ends
+    if(run>0 && orderedWeeks[i+1] !== w+1) break;  // non-adjacent week number -> break
+    run++;
+  }
+  return run;
+}
+
+function renderDriverTable(){
+  const weeks = selectedWeeks();
+  let rows = filteredRows();
+  const table = document.getElementById("driverTable");
+  const note = document.getElementById("driverNote");
+  if(!weeks.length){ table.innerHTML=""; note.textContent="Select a valid week range."; return; }
+
+  // Part-1-local DSP filter (independent of the global filter)
+  const drvDspSel = document.getElementById("drvDspFilter");
+  const localDsp = drvDspSel.value;
+  const dspOpts = [...new Set(rows.map(r=>r.dsp))].sort();
+  drvDspSel.innerHTML = '<option value="">All</option>';
+  dspOpts.forEach(d=> drvDspSel.add(new Option(d,d)));
+  drvDspSel.value = dspOpts.includes(localDsp) ? localDsp : "";
+  if(drvDspSel.value) rows = rows.filter(r=>r.dsp===drvDspSel.value);
+
+  const agg = new Map();
+  for(const r of rows){
+    const key = r.driver+"§"+r.dsp;
+    if(!agg.has(key)) agg.set(key, {driver:r.driver, dsp:r.dsp, wk:{}});
+    const o = agg.get(key);
+    if(!o.wk[r.wn]) o.wk[r.wn] = {"Fake POD":0,"Interruption":0,"Violent":0};
+    o.wk[r.wn][r.cat]++;
+  }
+  const onlyFlag = document.getElementById("onlyFlag").checked;
+  const search = norm(document.getElementById("drvSearch").value).toLowerCase();
+
+  const list=[];
+  for(const o of agg.values()){
+    if(search && !o.driver.toLowerCase().includes(search)) continue;
+    let total=0; const problemWeeks = new Set();
+    for(const w of weeks){
+      const c = o.wk[w];
+      const wt = c ? (c["Fake POD"]+c["Interruption"]+c["Violent"]) : 0;
+      total += wt; if(wt>0) problemWeeks.add(w);
+    }
+    const run = currentStreak(problemWeeks, weeks);
+    let flag=0; if(run>=3) flag=3; else if(run===2) flag=2;
+    if(onlyFlag && !flag) continue;
+    list.push({...o, total, run, flag});
+  }
+  list.sort((a,b)=> (b.flag-a.flag) || (b.total-a.total) || a.dsp.localeCompare(b.dsp));
+
+  let thead = `<thead><tr class="grp"><th rowspan="2">DSP</th><th rowspan="2">Driver</th>`;
+  weeks.forEach(w=> thead += `<th colspan="3">${weekLabel(w)}</th>`);
+  thead += `<th rowspan="2" class="num">Total</th><th rowspan="2">Streak</th></tr>`;
+  thead += `<tr class="sub">`;
+  weeks.forEach(()=>{ thead += `<th class="col-pod">Fake POD</th><th class="col-intr">Interr.</th><th class="col-viol">Violent</th>`; });
+  thead += `</tr></thead>`;
+
+  let tbody = "<tbody>";
+  if(!list.length){
+    tbody += `<tr><td class="empty" colspan="${2+weeks.length*3+2}">No matching records</td></tr>`;
+  }
+  for(const o of list){
+    tbody += `<tr><td class="dsp-cell">${escapeHtml(o.dsp)}</td><td>${escapeHtml(o.driver)}</td>`;
+    for(const w of weeks){
+      const c = o.wk[w] || {"Fake POD":0,"Interruption":0,"Violent":0};
+      tbody += cell(c["Fake POD"],"col-pod",{k:"cell",driver:o.driver,dsp:o.dsp,wn:w,cat:"Fake POD"});
+      tbody += cell(c["Interruption"],"col-intr",{k:"cell",driver:o.driver,dsp:o.dsp,wn:w,cat:"Interruption"});
+      tbody += cell(c["Violent"],"col-viol",{k:"cell",driver:o.driver,dsp:o.dsp,wn:w,cat:"Violent"});
+    }
+    tbody += cell(o.total,"tot",{k:"total",driver:o.driver,dsp:o.dsp});
+    let badge="";
+    if(o.flag===3) badge=`<span class="badge b3">${o.run}-week streak</span>`;
+    else if(o.flag===2) badge=`<span class="badge b2">2-week streak</span>`;
+    tbody += `<td>${badge}</td></tr>`;
+  }
+  tbody += "</tbody>";
+  table.innerHTML = thead + tbody;
+
+  const flag3 = list.filter(o=>o.flag===3).length;
+  const flag2 = list.filter(o=>o.flag===2).length;
+  note.innerHTML = `Range <b>${weekLabel(weeks[0])}–${weekLabel(weeks[weeks.length-1])}</b>: `+
+    `<b>${list.length}</b> drivers listed — <b style="color:var(--warn3)">${flag3}</b> with a 3-week (or longer) streak, `+
+    `<b style="color:var(--warn2)">${flag2}</b> with a 2-week streak.<br>`+
+    `Streak rule: the badge counts only <b>consecutive weeks with exceptions ending at the latest week (${weekLabel(weeks[weeks.length-1])})</b>. `+
+    `Once a driver has a full clean week, the streak resets and his problem-driver label is removed. Click any number to view &amp; copy its waybills.`;
+}
+
+function cell(v,cls,payload){
+  const clickable = v>0;
+  const attr = clickable ? ` class="num ${cls} clk" data-p="${enc(payload)}"` : ` class="num ${cls}${v===0?' zero':''}"`;
+  return `<td${attr}>${v||0}</td>`;
+}
+
+/* ============ View 2: DSP ============ */
+function topCount(rows, field){
+  const m = new Map();
+  for(const r of rows){ const k=r[field]; m.set(k,(m.get(k)||0)+1); }
+  return [...m.entries()].sort((a,b)=>b[1]-a[1]);
+}
+
+function renderDspCards(){
+  const weeks = selectedWeeks();
+  const rows = filteredRows();
+  const wrap = document.getElementById("dspCards");
+  if(!weeks.length){ wrap.innerHTML=`<div class="empty">Select a valid week range.</div>`; return; }
+
+  const dspMap = new Map();
+  for(const r of rows){ if(!dspMap.has(r.dsp)) dspMap.set(r.dsp, []); dspMap.get(r.dsp).push(r); }
+  const dsps = [...dspMap.entries()].sort((a,b)=>b[1].length-a[1].length);
+  if(!dsps.length){ wrap.innerHTML=`<div class="empty">No matching records</div>`; return; }
+
+  const colors = {pod:"var(--pod)",intr:"var(--intr)",viol:"var(--viol)"};
+  let html="";
+  for(const [dsp, recs] of dsps){
+    const total = recs.length;
+    const catN = {"Fake POD":0,"Interruption":0,"Violent":0};
+    recs.forEach(r=>catN[r.cat]++);
+    const routeTop = topCount(recs,"route")[0];
+
+    let stack="";
+    CATS.forEach(c=>{ const pct = total?(catN[c]/total*100):0; if(pct>0) stack += `<i style="width:${pct}%;background:${colors[CAT_KEY[c]]}"></i>`; });
+
+    let catRows="";
+    CATS.forEach(c=>{
+      const pct = total?(catN[c]/total*100):0;
+      const has = catN[c]>0;
+      const clk = has ? ` class="v clk" data-p="${enc({k:'dspcat',dsp,cat:c})}"` : ` class="v"`;
+      const drvBtn = has ? `<button class="drvbtn" data-drv="${enc({dsp,cat:c})}">By driver</button>` : "";
+      catRows += `<div class="catrow"><span class="dot" style="background:${colors[CAT_KEY[c]]}"></span>`+
+        `<span class="lbl">${c}</span><span${clk}>${catN[c]} · ${pct.toFixed(1)}%</span>${drvBtn}</div>`;
+    });
+
+    const podRecs = recs.filter(r=>r.cat==="Fake POD");
+    let podBlock="";
+    if(podRecs.length){
+      const rank = topCount(podRecs,"podReason").slice(0,5); const mx = rank[0][1];
+      let items="";
+      rank.forEach(([k,v])=>{
+        const pct=(v/podRecs.length*100).toFixed(1);
+        items += `<div class="brow" style="cursor:pointer" data-p="${enc({k:'field',dsp,cat:'Fake POD',field:'podReason',val:k})}">`+
+          `<span class="rt clk">${escapeHtml(k)}</span><span class="rv">${v} · ${pct}%</span>`+
+          `<span class="bar"><i style="width:${(v/mx*100)}%"></i></span></div>`;
+      });
+      podBlock = `<div class="breakdown pod"><div class="btitle">Fake POD reasons · Non-compliant POD Reason (${podRecs.length})</div>${items}</div>`;
+    }
+
+    const intrRecs = recs.filter(r=>r.cat==="Interruption");
+    let intrBlock="";
+    if(intrRecs.length){
+      const rank = topCount(intrRecs,"lastNode").slice(0,5); const mx = rank[0][1];
+      let items="";
+      rank.forEach(([k,v])=>{
+        const pct=(v/intrRecs.length*100).toFixed(1);
+        items += `<div class="brow" style="cursor:pointer" data-p="${enc({k:'field',dsp,cat:'Interruption',field:'lastNode',val:k})}">`+
+          `<span class="rt clk">${escapeHtml(k)}</span><span class="rv">${v} · ${pct}%</span>`+
+          `<span class="bar"><i style="width:${(v/mx*100)}%"></i></span></div>`;
+      });
+      intrBlock = `<div class="breakdown intr"><div class="btitle">Interruption nodes · Last operation node (${intrRecs.length})</div>${items}</div>`;
+    }
+
+    html += `<div class="card">
+      <div class="chead"><span class="name">${escapeHtml(dsp)}</span><span class="cnt">${total} exceptions</span></div>
+      <div class="routebar">
+        <div class="toproute" data-p="${enc({k:'route',dsp,val:routeTop[0]})}">⚠ Key route <b>${escapeHtml(routeTop[0])}</b> · ${routeTop[1]}</div>
+        <button class="rvbtn" data-routeview="${enc({dsp})}">Route view →</button>
+      </div>
+      <div class="stack">${stack}</div>
+      ${catRows}${podBlock}${intrBlock}
+    </div>`;
+  }
+  wrap.innerHTML = html;
+}
+
+/* ============ Waybill modal ============ */
+function rowsFor(p){
+  const rows = filteredRows();
+  if(p.k==="cell")   return rows.filter(r=>r.driver===p.driver&&r.dsp===p.dsp&&r.wn===p.wn&&r.cat===p.cat);
+  if(p.k==="total")  return rows.filter(r=>r.driver===p.driver&&r.dsp===p.dsp);
+  if(p.k==="dspcat") return rows.filter(r=>r.dsp===p.dsp&&r.cat===p.cat);
+  if(p.k==="field")  return rows.filter(r=>r.dsp===p.dsp&&r.cat===p.cat&&r[p.field]===p.val);
+  if(p.k==="route")  return rows.filter(r=>r.dsp===p.dsp&&r.route===p.val);
+  if(p.k==="routecat") return rows.filter(r=>r.dsp===p.dsp&&r.route===p.val&&r.cat===p.cat);
+  if(p.k==="dcd")    return rows.filter(r=>r.dsp===p.dsp&&r.cat===p.cat&&r.driver===p.driver);
+  return [];
+}
+function titleFor(p){
+  if(p.k==="cell")   return `${p.dsp} · ${escapeHtml(p.driver)} · ${weekLabel(p.wn)} · ${p.cat}`;
+  if(p.k==="total")  return `${p.dsp} · ${escapeHtml(p.driver)} · All exceptions`;
+  if(p.k==="dspcat") return `${p.dsp} · ${p.cat}`;
+  if(p.k==="field")  return `${p.dsp} · ${p.cat} · ${escapeHtml(p.val)}`;
+  if(p.k==="route")  return `${p.dsp} · Route ${escapeHtml(p.val)}`;
+  if(p.k==="routecat") return `${p.dsp} · Route ${escapeHtml(p.val)} · ${p.cat}`;
+  if(p.k==="dcd")    return `${p.dsp} · ${p.cat} · ${escapeHtml(p.driver)}`;
+  return "Waybills";
+}
+
+function openModal(payload){
+  const p = JSON.parse(decodeURIComponent(payload));
+  const rows = rowsFor(p);
+  const wbs = rows.map(r=>r.waybill);
+
+  const list = rows.map(r=>
+    `<div class="wbrow" data-wb="${escapeHtml(r.waybill)}">`+
+      `<span>${escapeHtml(r.waybill)}</span>`+
+      `<span class="wbmeta">${weekLabel(r.wn)} · ${r.cat} · ${escapeHtml(r.route)}<span class="cptag">  copy</span></span>`+
+    `</div>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className="overlay";
+  overlay.innerHTML = `<div class="modal">
+    <div class="mhead"><div class="mtitle">${titleFor(p)}</div><div class="mcount">${rows.length} waybill(s) · click a row to copy one</div></div>
+    <div class="mlist">${list||'<div class="empty">None</div>'}</div>
+    <div class="mfoot"><span class="hint">Copies one waybill per line</span>
+      <button id="copyAll" class="primary">Copy all</button>
+      <button id="closeM">Close</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector("#closeM").onclick = ()=> overlay.remove();
+  overlay.querySelector("#copyAll").onclick = ()=> copyText(wbs.join("\n"), `Copied ${wbs.length} waybills`);
+  overlay.querySelectorAll(".wbrow").forEach(row=>{
+    row.onclick = ()=> copyText(row.dataset.wb, "Copied "+row.dataset.wb);
+  });
+  document.addEventListener("keydown", function esc(e){ if(e.key==="Escape"){ overlay.remove(); document.removeEventListener("keydown",esc);} });
+}
+
+function copyText(text, msg){
+  const done = ()=> toast(msg);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done){
+  const ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); done(); }catch(e){ alert("Copy failed"); }
+  ta.remove();
+}
+let toastTimer;
+function toast(msg){
+  const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"),1600);
+}
+
+/* ============ Route view modal ============ */
+function openRouteView(payload){
+  const {dsp} = JSON.parse(decodeURIComponent(payload));
+  const rows = filteredRows().filter(r=>r.dsp===dsp);
+
+  // aggregate by route
+  const rmap = new Map();
+  for(const r of rows){
+    if(!rmap.has(r.route)) rmap.set(r.route, {"Fake POD":0,"Interruption":0,"Violent":0,total:0});
+    const o = rmap.get(r.route); o[r.cat]++; o.total++;
+  }
+  const routes = [...rmap.entries()].sort((a,b)=> b[1].total-a[1].total || a[0].localeCompare(b[0]));
+  const colors = {pod:"var(--pod)",intr:"var(--intr)",viol:"var(--viol)"};
+
+  const list = routes.map(([route,o])=>{
+    let stack="";
+    CATS.forEach(c=>{ const pct=o.total?(o[c]/o.total*100):0; if(pct>0) stack+=`<i style="width:${pct}%;background:${colors[CAT_KEY[c]]}"></i>`; });
+    let chips="";
+    CATS.forEach(c=>{ if(o[c]>0) chips+=`<span class="rvchip ${CAT_KEY[c]}" data-p="${enc({k:'routecat',dsp,val:route,cat:c})}">${c} ${o[c]}</span>`; });
+    return `<div class="rvrow">
+      <div class="rvhead" data-p="${enc({k:'route',dsp,val:route})}">
+        <span class="rvname">${escapeHtml(route)}</span><span class="rvtot">${o.total}</span>
+      </div>
+      <div class="rvstack">${stack}</div>
+      <div class="rvchips">${chips}</div>
+    </div>`;
+  }).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className="overlay";
+  overlay.innerHTML = `<div class="modal wide">
+    <div class="mhead"><div class="mtitle">${escapeHtml(dsp)} · Route distribution</div>
+      <div class="mcount">${routes.length} route(s) · ${rows.length} exceptions · click a route or a chip to view &amp; copy waybills</div></div>
+    <div class="mlist">${list||'<div class="empty">None</div>'}</div>
+    <div class="mfoot"><span class="hint">Route → all its waybills · chip → that category only</span>
+      <button id="closeRV">Close</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector("#closeRV").onclick = ()=> overlay.remove();
+  document.addEventListener("keydown", function esc(e){ if(e.key==="Escape"){ overlay.remove(); document.removeEventListener("keydown",esc);} });
+}
+
+/* ============ Driver breakdown modal (per DSP + category) ============ */
+function openDriverBreakdown(payload){
+  const {dsp,cat} = JSON.parse(decodeURIComponent(payload));
+  const rows = filteredRows().filter(r=>r.dsp===dsp && r.cat===cat);
+
+  const m = new Map();
+  for(const r of rows) m.set(r.driver,(m.get(r.driver)||0)+1);
+  const drivers = [...m.entries()].sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
+  const mx = drivers.length ? drivers[0][1] : 1;
+  const color = {"Fake POD":"var(--pod)","Interruption":"var(--intr)","Violent":"var(--viol)"}[cat];
+
+  const list = drivers.map(([drv,n])=>{
+    const pct = rows.length?(n/rows.length*100):0;
+    return `<div class="rvrow">
+      <div class="rvhead" data-p="${enc({k:'dcd',dsp,cat,driver:drv})}">
+        <span class="rvname txt">${escapeHtml(drv)}</span><span class="rvtot">${n} · ${pct.toFixed(1)}%</span>
+      </div>
+      <div class="rvbar"><i style="width:${(n/mx*100)}%;background:${color}"></i></div>
+    </div>`;
+  }).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className="overlay";
+  overlay.innerHTML = `<div class="modal wide">
+    <div class="mhead"><div class="mtitle">${escapeHtml(dsp)} · ${cat} · by driver</div>
+      <div class="mcount">${drivers.length} driver(s) · ${rows.length} ${cat} exceptions · click a driver to view &amp; copy his waybills</div></div>
+    <div class="mlist">${list||'<div class="empty">None</div>'}</div>
+    <div class="mfoot"><span class="hint">Sorted by count · click a driver row for his waybills</span>
+      <button id="closeDB">Close</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener("click", e=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector("#closeDB").onclick = ()=> overlay.remove();
+  document.addEventListener("keydown", function esc(e){ if(e.key==="Escape"){ overlay.remove(); document.removeEventListener("keydown",esc);} });
+}
+
+/* ============ Render / events ============ */
+function renderAll(){ renderDriverTable(); renderDspCards(); }
+
+function bindEvents(){
+  const drop = document.getElementById("drop");
+  const file = document.getElementById("file");
+  drop.onclick = ()=> file.click();
+  ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+  drop.addEventListener("drop", e=> handleFiles(e.dataTransfer.files));
+  file.addEventListener("change", e=> handleFiles(e.target.files));
+
+  ["wkFrom","wkTo","dspFilter"].forEach(id=> document.getElementById(id).addEventListener("change", renderAll));
+  document.getElementById("onlyFlag").addEventListener("change", renderDriverTable);
+  document.getElementById("drvSearch").addEventListener("input", renderDriverTable);
+  document.getElementById("drvDspFilter").addEventListener("change", renderDriverTable);
+
+  document.querySelectorAll(".tab").forEach(t=>{
+    t.onclick = ()=>{
+      document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+      t.classList.add("active");
+      const tab = t.dataset.tab;
+      document.getElementById("viewDriver").classList.toggle("hidden", tab!=="driver");
+      document.getElementById("viewDsp").classList.toggle("hidden", tab!=="dsp");
+    };
+  });
+
+  // delegated click: route-view button first, then any data-p payload
+  document.addEventListener("click", e=>{
+    const rv = e.target.closest("[data-routeview]");
+    if(rv){ openRouteView(rv.getAttribute("data-routeview")); return; }
+    const dv = e.target.closest("[data-drv]");
+    if(dv){ openDriverBreakdown(dv.getAttribute("data-drv")); return; }
+    const el = e.target.closest("[data-p]");
+    if(el){ openModal(el.getAttribute("data-p")); }
+  });
+}
+
+function handleFiles(fileList){
+  const files = [...fileList];
+  if(!files.length) return;
+  let pending = files.length, totalAdded=0;
+  files.forEach(f=>{
+    const reader = new FileReader();
+    reader.onload = e=>{
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+        totalAdded += mergeRows(parseWorkbook(wb));
+      }catch(err){ alert("Parse failed: "+f.name+"\n"+err.message); }
+      if(--pending===0){ boot(); flashUpload(totalAdded); }
+    };
+    reader.readAsArrayBuffer(f);
+  });
+}
+function flashUpload(added){
+  const meta=document.getElementById("meta");
+  const tip=document.createElement("span");
+  tip.style.color="var(--accent)"; tip.style.fontWeight="600";
+  tip.textContent = `✓ Added ${added} new`;
+  meta.appendChild(tip); setTimeout(()=>tip.remove(), 3500);
+}
+
+/* ============ Boot ============ */
+function boot(){
+  refreshWeeks();
+  renderMeta();
+  const has = ROWS.length>0;
+  document.getElementById("ctlPanel").classList.toggle("hidden", !has);
+  document.getElementById("tabs").classList.toggle("hidden", !has);
+  document.getElementById("viewDriver").classList.toggle("hidden", !has);
+  if(has){ populateSelectors(); renderAll(); }
+  else {
+    document.getElementById("driverTable").innerHTML="";
+    document.getElementById("dspCards").innerHTML="";
+    document.getElementById("driverNote").textContent="";
+  }
+}
+
+loadStore();
+bindEvents();
+boot();
+</script>
+</body>
+</html>
