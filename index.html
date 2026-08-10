@@ -32,6 +32,10 @@
   .drop:hover,.drop.drag{border-color:var(--accent);background:var(--accent-soft)}
   .drop strong{color:var(--accent)}
   .drop small{display:block;color:var(--muted);margin-top:6px}
+  .repo-status{font-size:12.5px;padding:8px 12px;border-radius:8px;margin-bottom:12px;line-height:1.5}
+  .repo-status.loading{background:#eef1f4;color:var(--muted)}
+  .repo-status.ok{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .repo-status.warn{background:var(--warn2-soft);color:var(--warn2);font-weight:600}
   .meta{display:flex;gap:22px;flex-wrap:wrap;align-items:center;margin-top:14px;font-size:13px}
   .meta .pill{background:var(--accent-soft);color:var(--accent);padding:3px 10px;border-radius:20px;font-weight:600}
   .meta .wk{background:#eef1f4;color:var(--ink);padding:2px 8px;border-radius:5px;font-family:var(--mono);font-size:12px}
@@ -167,9 +171,10 @@
   <!-- Data -->
   <div class="panel">
     <h2>Data</h2>
+    <div class="repo-status loading" id="repoStatus">⏳ Loading data…</div>
     <div class="drop" id="drop">
-      <strong>Click or drag to upload Excel</strong> (.xlsx)
-      <small>Incremental update supported: multiple uploads merge automatically, de-duplicated by Waybill + Week + Exception type. Data is stored locally in this browser.</small>
+      <strong>Optional: upload Excel to preview / append</strong> (.xlsx)
+      <small>The page automatically loads <b>weekly_FLL_data.xlsx</b> from the repository — everyone who opens the link sees the same data. Manual uploads here are <b>session-only</b>: they merge on top for preview and disappear on refresh. To change what others see, replace <b>weekly_FLL_data.xlsx</b> in the repo. De-duplicated by Waybill + Week + Exception type + Driver.</small>
       <input type="file" id="file" accept=".xlsx,.xls" class="hidden" multiple>
     </div>
     <div class="meta" id="meta"></div>
@@ -237,8 +242,11 @@
 /* ============ Constants & state ============ */
 const CATS = ["Fake POD","Interruption","Violent"];
 const CAT_KEY = {"Fake POD":"pod","Interruption":"intr","Violent":"viol"};
-const STORE_KEY = "fll_weekly_exception_rows_v1";
-let ROWS = [];
+const REPO_FILE = "weekly_FLL_data.xlsx";     // must sit next to index.html in the repo
+let ROWS = [];                                 // current working set (repo baseline + session uploads)
+let REPO_ROWS = [];                            // authoritative baseline auto-loaded from the repo
+let SESSION_ADDED = 0;                          // manual-upload rows added this session (preview only)
+let REPO_INFO = {status:"loading", lastModified:null, error:null};
 let ALL_WEEKS = [];
 
 /* ============ Helpers ============ */
@@ -297,18 +305,65 @@ function parseWorkbook(wb){
   return out;
 }
 
+const keyOf = r => r.waybill+"|"+r.week+"|"+r.cat+"|"+r.driver;
+function dedupeRows(rows){
+  const map = new Map();
+  for(const r of rows) map.set(keyOf(r), r);
+  return [...map.values()];
+}
+// Manual upload = session-only merge on top of the repo baseline (not persisted)
 function mergeRows(newRows){
   const map = new Map();
-  const keyOf = r => r.waybill+"|"+r.week+"|"+r.cat+"|"+r.driver;
   for(const r of ROWS) map.set(keyOf(r), r);
   let added=0;
   for(const r of newRows){ const k = keyOf(r); if(!map.has(k)) added++; map.set(k, r); }
   ROWS = [...map.values()];
-  saveStore();
+  SESSION_ADDED += added;
   return added;
 }
-function saveStore(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(ROWS)); }catch(e){} }
-function loadStore(){ try{ const s=localStorage.getItem(STORE_KEY); if(s) ROWS=JSON.parse(s); }catch(e){ ROWS=[]; } }
+
+/* ---- Auto-load weekly_FLL_data.xlsx from the repository ---- */
+async function loadRepoData(){
+  REPO_INFO = {status:"loading", lastModified:null, error:null};
+  renderRepoStatus();
+  try{
+    const res = await fetch(REPO_FILE + "?t=" + Date.now(), {cache:"no-store"});
+    if(res.ok){
+      const buf = await res.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), {type:"array"});
+      REPO_ROWS = dedupeRows(parseWorkbook(wb));
+      REPO_INFO = {status:"ok", lastModified: res.headers.get("Last-Modified"), error:null};
+    } else {
+      REPO_ROWS = [];
+      REPO_INFO = {status: res.status===404 ? "missing" : "error", lastModified:null, error:"HTTP "+res.status};
+    }
+  }catch(e){
+    REPO_ROWS = [];
+    REPO_INFO = {status:"error", lastModified:null, error:e.message};
+  }
+  ROWS = [...REPO_ROWS];   // repo file is the single source of truth on every load
+  SESSION_ADDED = 0;
+}
+
+function renderRepoStatus(){
+  const el = document.getElementById("repoStatus");
+  if(!el) return;
+  const s = REPO_INFO.status;
+  if(s==="loading"){ el.className="repo-status loading"; el.innerHTML=`⏳ Loading <b>${REPO_FILE}</b> from repository…`; return; }
+  if(s==="ok"){
+    const lm = REPO_INFO.lastModified ? ` · file updated ${new Date(REPO_INFO.lastModified).toLocaleString()}` : "";
+    el.className="repo-status ok";
+    el.innerHTML=`✓ Loaded <b>${REPO_FILE}</b> · ${REPO_ROWS.length} exceptions${lm}`;
+    return;
+  }
+  if(s==="missing"){
+    el.className="repo-status warn";
+    el.innerHTML=`⚠ <b>${REPO_FILE}</b> not found in the repository yet. Add it next to index.html so everyone sees the same data — or upload manually below to preview.`;
+    return;
+  }
+  el.className="repo-status warn";
+  el.innerHTML=`⚠ Could not load <b>${REPO_FILE}</b> (${escapeHtml(REPO_INFO.error||"error")}). If you opened this file directly from disk, serve it over http:// (e.g. GitHub Pages) or upload manually below.`;
+}
 
 /* ============ Meta & selectors ============ */
 function refreshWeeks(){ ALL_WEEKS = [...new Set(ROWS.map(r=>r.wn))].sort((a,b)=>a-b); }
@@ -319,14 +374,17 @@ function renderMeta(){
   const wkTxt = ALL_WEEKS.map(weekLabel).map(w=>`<span class="wk">${w}</span>`).join(" ");
   const dspN = new Set(ROWS.map(r=>r.dsp)).size;
   const drvN = new Set(ROWS.map(r=>r.driver)).size;
+  const sessionNote = SESSION_ADDED>0
+    ? `<span style="color:var(--intr);font-weight:600">+${SESSION_ADDED} from manual upload (session only)</span>` : "";
   meta.innerHTML =
     `<span class="pill">${ROWS.length} exceptions</span>`+
     `<span>Weeks: ${wkTxt}</span>`+
     `<span>DSP: <b>${dspN}</b></span>`+
     `<span>Drivers: <b>${drvN}</b></span>`+
-    `<button class="danger" id="clearBtn">Clear data</button>`;
-  document.getElementById("clearBtn").onclick = ()=>{
-    if(confirm("Clear all uploaded data? This cannot be undone.")){ ROWS=[]; saveStore(); boot(); }
+    sessionNote+
+    `<button id="reloadBtn">↻ Reload from repo</button>`;
+  document.getElementById("reloadBtn").onclick = async ()=>{
+    await loadRepoData(); renderRepoStatus(); boot();
   };
 }
 
@@ -770,9 +828,13 @@ function boot(){
   }
 }
 
-loadStore();
-bindEvents();
-boot();
+async function init(){
+  bindEvents();
+  await loadRepoData();
+  renderRepoStatus();
+  boot();
+}
+init();
 </script>
 </body>
 </html>
