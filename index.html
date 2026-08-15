@@ -159,6 +159,36 @@
   .modal .mfoot .hint{margin-right:auto;font-size:11px;color:var(--muted)}
   .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;z-index:60;opacity:0;transition:.2s;pointer-events:none}
   .toast.show{opacity:1}
+
+  /* trend view */
+  .rvbtn.trendbtn{border-color:var(--pod);color:var(--pod);background:var(--pod-soft)}
+  .rvbtn.trendbtn:hover{background:var(--pod);color:#fff;border-color:var(--pod)}
+  .modal.trend{width:min(720px,100%)}
+  .trend-tabs{display:flex;gap:4px;margin-top:10px;flex-wrap:wrap}
+  .trend-tab{padding:5px 12px;font-size:12px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:20px;cursor:pointer;background:#fff}
+  .trend-tab.active{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .chart-area{position:relative;padding:14px 16px 2px}
+  .chart-area svg{width:100%;height:auto;display:block;overflow:visible}
+  .axis-line{stroke:var(--line);stroke-width:1}
+  .grid-line{stroke:#eef1f4;stroke-width:1}
+  .axis-txt{fill:var(--muted);font-size:10px;font-family:var(--mono)}
+  .series-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .series-line.total{stroke-width:3}
+  .series-dot{stroke:#fff;stroke-width:1.4}
+  .hover-guide{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+  .hit-rect{fill:transparent;cursor:crosshair}
+  .chart-tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:8px;padding:8px 10px;font-size:11.5px;line-height:1.55;z-index:5;opacity:0;transition:opacity .1s;min-width:160px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+  .chart-tip .tw{font-weight:700;margin-bottom:4px;font-family:var(--mono)}
+  .chart-tip .tr{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .chart-tip .tr .nm{display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
+  .chart-tip .tr .dt{width:8px;height:8px;border-radius:2px;flex:none}
+  .chart-tip .tr .vv{font-family:var(--mono);white-space:nowrap}
+  .rlegend{display:flex;flex-wrap:wrap;gap:7px;padding:12px 16px 4px}
+  .rlchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);cursor:pointer;background:#fff;user-select:none}
+  .rlchip .dt{width:9px;height:9px;border-radius:2px;flex:none}
+  .rlchip .wo{font-family:var(--mono);font-size:10.5px}
+  .rlchip.off{opacity:.42}
+  .rlchip.off .dt{background:#c3cad1 !important}
 </style>
 </head>
 <body>
@@ -249,6 +279,10 @@ let SESSION_ADDED = 0;                          // manual-upload rows added this
 let REPO_INFO = {status:"loading", lastModified:null, error:null};
 let ALL_WEEKS = [];
 
+/* DSPs to hide from every view (match is case-insensitive, whitespace-trimmed).
+   Edit this list to add/remove excluded DSPs. */
+const EXCLUDED_DSPS = new Set(["GOD","ORC","MRJ"]);
+
 /* ============ Helpers ============ */
 const norm = s => (s==null?"":String(s)).replace(/\s+/g," ").trim();
 const weekNum = w => { const m = String(w).match(/(\d+)/); return m?parseInt(m[1],10):NaN; };
@@ -292,9 +326,11 @@ function parseWorkbook(wb){
     if(!cat) continue;
     const wn = weekNum(r[H.week]);
     if(isNaN(wn)) continue;
+    const dspVal = norm(r[H.dsp]) || "(Unknown DSP)";
+    if(EXCLUDED_DSPS.has(dspVal.toUpperCase())) continue;   // drop excluded DSPs everywhere
     out.push({
       wn, week: weekLabel(wn), cat,
-      dsp: norm(r[H.dsp]) || "(Unknown DSP)",
+      dsp: dspVal,
       route: norm(r[H.route]) || "(none)",
       driver: norm(r[H.driver]) || "(Unknown driver)",
       waybill: norm(r[H.waybill]) || "(no waybill)",
@@ -589,6 +625,7 @@ function renderDspCards(){
       <div class="routebar">
         <div class="toproute" data-p="${enc({k:'route',dsp,val:routeTop[0]})}">⚠ Key route <b>${escapeHtml(routeTop[0])}</b> · ${routeTop[1]}</div>
         <button class="rvbtn" data-routeview="${enc({dsp})}">Route view →</button>
+        <button class="rvbtn trendbtn" data-trendview="${enc({dsp})}">📈 Trend →</button>
       </div>
       <div class="stack">${stack}</div>
       ${catRows}${podBlock}${intrBlock}
@@ -750,6 +787,119 @@ function openDriverBreakdown(payload){
   document.addEventListener("keydown", function esc(e){ if(e.key==="Escape"){ overlay.remove(); document.removeEventListener("keydown",esc);} });
 }
 
+/* ============ Trend view (weekly line chart) ============ */
+const TREND_PALETTE = ["#2f6fb0","#c8842a","#b13b3b","#6a4c93","#1b998b","#d1495b","#3d5a80","#e07a5f","#8a5a44","#5f797b","#9b5de5","#457b9d"];
+function niceStep(max){
+  const rough=Math.max(max/4,1), pow=Math.pow(10,Math.floor(Math.log10(rough))), n=rough/pow;
+  let s; if(n<1.5)s=1;else if(n<3)s=2;else if(n<7)s=5;else s=10; return s*pow;
+}
+function openTrendView(payload){
+  const {dsp}=JSON.parse(decodeURIComponent(payload));
+  const weeks=selectedWeeks();
+  const baseRows=filteredRows().filter(r=>r.dsp===dsp);
+  let curCat="All";
+  const routeTotals=new Map();
+  baseRows.forEach(r=>routeTotals.set(r.route,(routeTotals.get(r.route)||0)+1));
+  const allRoutes=[...routeTotals.entries()].sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const visible=new Set(["__TOTAL__", ...allRoutes.slice(0,5)]);
+
+  const overlay=document.createElement("div");
+  overlay.className="overlay";
+  overlay.innerHTML=`<div class="modal trend">
+    <div class="mhead">
+      <div class="mtitle">${escapeHtml(dsp)} · Weekly exception trend</div>
+      <div class="mcount">${weeks.length} week(s) · ${allRoutes.length} route(s) · exception package count by week</div>
+      <div class="trend-tabs" id="tTabs">
+        ${["All","Fake POD","Interruption","Violent"].map(c=>`<div class="trend-tab${c==="All"?" active":""}" data-cat="${c}">${c==="All"?"All categories":c}</div>`).join("")}
+      </div>
+    </div>
+    <div class="chart-area" id="tChart"></div>
+    <div class="rlegend" id="tLegend"></div>
+    <div class="mfoot">
+      <span class="hint">Weekly exception package count · click a route in the legend to show/hide · hover a week for details</span>
+      <button id="tClose">Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  function seriesFor(cat){
+    const rows = cat==="All" ? baseRows : baseRows.filter(r=>r.cat===cat);
+    const blank=()=>{const o={};weeks.forEach(w=>o[w]=0);return o;};
+    const totVals=blank(), routeVals=new Map();
+    rows.forEach(r=>{
+      if(totVals[r.wn]===undefined) return;
+      totVals[r.wn]++;
+      if(!routeVals.has(r.route)) routeVals.set(r.route,blank());
+      routeVals.get(r.route)[r.wn]++;
+    });
+    const series=[{key:"__TOTAL__",name:"All routes (total)",color:"#1a1f24",values:totVals,isTotal:true}];
+    allRoutes.forEach((rt,i)=>series.push({key:rt,name:rt,color:TREND_PALETTE[i%TREND_PALETTE.length],values:routeVals.get(rt)||blank()}));
+    return series;
+  }
+  function redraw(){
+    if(!weeks.length){ overlay.querySelector("#tChart").innerHTML=`<div class="empty">Select a valid week range.</div>`; overlay.querySelector("#tLegend").innerHTML=""; return; }
+    const series=seriesFor(curCat).map(s=>({...s,visible:visible.has(s.key)}));
+    drawChart(series); drawLegend(series);
+  }
+  function drawChart(series){
+    const host=overlay.querySelector("#tChart");
+    const W=640,H=320,padL=42,padR=14,padT=16,padB=32, plotW=W-padL-padR, plotH=H-padT-padB;
+    const vis=series.filter(s=>s.visible); let maxY=1;
+    vis.forEach(s=>weeks.forEach(w=>maxY=Math.max(maxY,s.values[w]||0)));
+    const step=niceStep(maxY), yTop=Math.max(Math.ceil(maxY/step)*step, step), single=weeks.length===1;
+    const xOf=i=> single? padL+plotW/2 : padL+plotW*i/(weeks.length-1);
+    const yOf=v=> padT+plotH-(v/yTop)*plotH;
+    let grid="",yl="";
+    for(let v=0;v<=yTop+1e-9;v+=step){ const yy=yOf(v);
+      grid+=`<line class="grid-line" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
+      yl+=`<text class="axis-txt" x="${padL-6}" y="${yy+3}" text-anchor="end">${v}</text>`; }
+    const everyX=Math.ceil(weeks.length/12); let xl="";
+    weeks.forEach((w,i)=>{ if(i%everyX===0||i===weeks.length-1) xl+=`<text class="axis-txt" x="${xOf(i)}" y="${H-padB+16}" text-anchor="middle">${weekLabel(w)}</text>`; });
+    let paths="",dots="";
+    vis.forEach(s=>{
+      const pts=weeks.map((w,i)=>`${xOf(i).toFixed(1)},${yOf(s.values[w]||0).toFixed(1)}`);
+      if(!single) paths+=`<polyline class="series-line${s.isTotal?' total':''}" stroke="${s.color}" points="${pts.join(' ')}"/>`;
+      weeks.forEach((w,i)=>dots+=`<circle class="series-dot" cx="${xOf(i).toFixed(1)}" cy="${yOf(s.values[w]||0).toFixed(1)}" r="${s.isTotal?3.5:2.6}" fill="${s.color}"/>`);
+    });
+    let hits=""; const bandW= single? plotW : plotW/((weeks.length-1)||1);
+    weeks.forEach((w,i)=>{ const cx=xOf(i); hits+=`<rect class="hit-rect" x="${(cx-bandW/2).toFixed(1)}" y="${padT}" width="${bandW.toFixed(1)}" height="${plotH}" data-i="${i}"/>`; });
+    host.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${grid}
+      <line class="axis-line" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+plotH}"/>
+      <line class="axis-line" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>
+      ${yl}${xl}<line class="hover-guide" id="tGuide" y1="${padT}" y2="${padT+plotH}"/>
+      ${paths}${dots}${hits}</svg><div class="chart-tip" id="tTip"></div>`;
+    const svg=host.querySelector("svg"), guide=host.querySelector("#tGuide"), tip=host.querySelector("#tTip");
+    host.querySelectorAll(".hit-rect").forEach(rect=>{
+      rect.addEventListener("mouseenter",()=>{
+        const i=+rect.dataset.i, w=weeks[i], cx=xOf(i);
+        guide.setAttribute("x1",cx); guide.setAttribute("x2",cx); guide.style.opacity="1";
+        const items=vis.slice().sort((a,b)=>(b.values[w]||0)-(a.values[w]||0));
+        tip.innerHTML=`<div class="tw">${weekLabel(w)}</div>`+items.map(s=>{
+          const cur=s.values[w]||0;
+          return `<div class="tr"><span class="nm"><span class="dt" style="background:${s.color}"></span>${escapeHtml(s.name)}</span><span class="vv">${cur}</span></div>`;
+        }).join("");
+        const r=svg.getBoundingClientRect(), scale=r.width/W; let px=cx*scale+12;
+        if(px>r.width-180) px=cx*scale-180;
+        tip.style.left=px+"px"; tip.style.top=(padT*scale+6)+"px"; tip.style.opacity="1";
+      });
+    });
+    svg.addEventListener("mouseleave",()=>{ guide.style.opacity="0"; tip.style.opacity="0"; });
+  }
+  function drawLegend(series){
+    const host=overlay.querySelector("#tLegend"), last=weeks[weeks.length-1];
+    host.innerHTML=series.map(s=>{
+      const cur=s.values[last]||0, off=visible.has(s.key)?"":" off";
+      return `<span class="rlchip${off}" data-key="${escapeHtml(s.key)}"><span class="dt" style="background:${s.color}"></span>${escapeHtml(s.name)}<span class="wo">${cur}</span></span>`;
+    }).join("");
+    host.querySelectorAll(".rlchip").forEach(ch=>ch.onclick=()=>{ const k=ch.dataset.key; visible.has(k)?visible.delete(k):visible.add(k); redraw(); });
+  }
+  overlay.querySelectorAll(".trend-tab").forEach(t=>t.onclick=()=>{ overlay.querySelectorAll(".trend-tab").forEach(x=>x.classList.remove("active")); t.classList.add("active"); curCat=t.dataset.cat; redraw(); });
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector("#tClose").onclick=()=>overlay.remove();
+  document.addEventListener("keydown",function esc(e){ if(e.key==="Escape"){ overlay.remove(); document.removeEventListener("keydown",esc);} });
+  redraw();
+}
+
 /* ============ Render / events ============ */
 function renderAll(){ renderDriverTable(); renderDspCards(); }
 
@@ -777,8 +927,10 @@ function bindEvents(){
     };
   });
 
-  // delegated click: route-view button first, then any data-p payload
+  // delegated click: trend-view button, then route-view button, then any data-p payload
   document.addEventListener("click", e=>{
+    const tv = e.target.closest("[data-trendview]");
+    if(tv){ openTrendView(tv.getAttribute("data-trendview")); return; }
     const rv = e.target.closest("[data-routeview]");
     if(rv){ openRouteView(rv.getAttribute("data-routeview")); return; }
     const dv = e.target.closest("[data-drv]");
