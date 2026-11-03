@@ -189,6 +189,30 @@
   .rlchip .wo{font-family:var(--mono);font-size:10.5px}
   .rlchip.off{opacity:.42}
   .rlchip.off .dt{background:#c3cad1 !important}
+
+  /* view 3: driver profile across DSPs */
+  .plist{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+  .pcard{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden}
+  .pcard .phead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);background:#fafbfc}
+  .pcard .pname{font-size:15px;font-weight:700}
+  .pcard .pstat{font-size:12px;color:var(--muted)}
+  .pcard .pstat b{font-family:var(--mono);color:var(--ink)}
+  .ptag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+  .ptag.multi{background:#eef1f4;color:var(--ink)}
+  .ptag.bad{background:var(--warn3-soft);color:var(--warn3)}
+  .ptag.ok{background:var(--accent-soft);color:var(--accent)}
+  .pcard table{min-width:0;font-size:12.5px}
+  .pcard th,.pcard td{padding:6px 10px}
+  .pcard td.pdsp{font-weight:600}
+  .pcard td.pc{text-align:center;font-family:var(--mono);vertical-align:middle}
+  .pcard td.pc .n{font-weight:700;font-size:13px}
+  .pcard td.pc .sp{display:block;font-size:10px;line-height:1.3;white-space:nowrap}
+  .pcard td.pc .sp i{font-style:normal;margin:0 1px}
+  .pcard td.pc .sp .p{color:var(--pod)} .pcard td.pc .sp .ii{color:var(--intr)} .pcard td.pc .sp .v{color:var(--viol)}
+  .pcard td.pc.none{color:#c3cad1}
+  .pcard td.h1{background:#fdf3e6} .pcard td.h2{background:#fae3c8} .pcard td.h3{background:#f6cfc9}
+  .pcard tr.allrow td{border-top:2px solid var(--line);background:#f7f9fa;font-weight:700}
+  .pcard td.avg{font-family:var(--mono);text-align:center;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -246,6 +270,7 @@
   <div class="tabs hidden" id="tabs">
     <div class="tab active" data-tab="driver">① Driver View · Streak Tracking</div>
     <div class="tab" data-tab="dsp">② DSP View · Category Breakdown &amp; Key Route</div>
+    <div class="tab" data-tab="profile">③ Driver Profile · Across DSPs</div>
   </div>
 
   <!-- View 1: Driver -->
@@ -263,6 +288,36 @@
   <!-- View 2: DSP -->
   <div id="viewDsp" class="hidden">
     <div class="cards" id="dspCards"></div>
+  </div>
+
+  <!-- View 3: Driver profile across DSPs -->
+  <div id="viewProfile" class="hidden">
+    <div class="controls" style="margin-top:16px">
+      <div class="ctl">
+        <label>Worked at DSP</label>
+        <select id="pDsp"><option value="">Any</option></select>
+      </div>
+      <div class="ctl">
+        <label>Sort by</label>
+        <select id="pSort">
+          <option value="total">Total exceptions</option>
+          <option value="dsps">Number of DSPs</option>
+          <option value="avg">Avg per active week</option>
+          <option value="name">Driver name</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>After switch</label>
+        <select id="pSwitch">
+          <option value="">All</option>
+          <option value="bad">No better after switch</option>
+          <option value="ok">Fewer after switch</option>
+        </select>
+      </div>
+      <label class="toggle"><input type="checkbox" id="pMulti" checked> Drivers with 2+ DSPs only</label>
+    </div>
+    <div class="footnote" id="profileNote"></div>
+    <div class="plist" id="profileList"></div>
   </div>
 </div>
 
@@ -634,8 +689,152 @@ function renderDspCards(){
   wrap.innerHTML = html;
 }
 
+/* ============ View 3: Driver profile across DSPs ============ */
+/* One card per driver, ignoring the global DSP filter on purpose: the point is to
+   see the same person at every DSP he has worked for. Note: the data only holds
+   exception rows, so a week with no exceptions under a DSP shows "–" (either clean
+   or not working there that week — the file can't tell which). */
+function weekRows(){
+  const wks = new Set(selectedWeeks());
+  return ROWS.filter(r => wks.has(r.wn));
+}
+const blankCats = ()=>({"Fake POD":0,"Interruption":0,"Violent":0});
+const sumCats = c => c["Fake POD"]+c["Interruption"]+c["Violent"];
+
+function profileCell(c, payload){
+  const n = c ? sumCats(c) : 0;
+  if(!n) return `<td class="pc none">–</td>`;
+  const heat = n>=5 ? "h3" : n>=3 ? "h2" : "h1";
+  const sp = [["p","P","Fake POD"],["ii","I","Interruption"],["v","V","Violent"]]
+    .filter(([,,k])=>c[k]>0).map(([cls,l,k])=>`<i class="${cls}">${l}${c[k]}</i>`).join("");
+  return `<td class="pc ${heat} clk" data-p="${enc(payload)}"><span class="n">${n}</span><span class="sp">${sp}</span></td>`;
+}
+
+function renderProfile(){
+  const weeks = selectedWeeks();
+  const listEl = document.getElementById("profileList");
+  const note = document.getElementById("profileNote");
+  if(!weeks.length){ listEl.innerHTML=""; note.textContent="Select a valid week range."; return; }
+
+  const rows = weekRows();
+  const dspSel = document.getElementById("pDsp");
+  const prevDsp = dspSel.value;
+  const dspOpts = [...new Set(rows.map(r=>r.dsp))].sort();
+  dspSel.innerHTML = '<option value="">Any</option>';
+  dspOpts.forEach(d=> dspSel.add(new Option(d,d)));
+  dspSel.value = dspOpts.includes(prevDsp) ? prevDsp : "";
+
+  // driver -> dsp -> week -> cats
+  const drv = new Map();
+  for(const r of rows){
+    if(!drv.has(r.driver)) drv.set(r.driver, new Map());
+    const dm = drv.get(r.driver);
+    if(!dm.has(r.dsp)) dm.set(r.dsp, {});
+    const wk = dm.get(r.dsp);
+    if(!wk[r.wn]) wk[r.wn] = blankCats();
+    wk[r.wn][r.cat]++;
+  }
+
+  const onlyMulti = document.getElementById("pMulti").checked;
+  const search = norm(document.getElementById("drvSearch").value).toLowerCase();
+  const list = [];
+  for(const [name, dm] of drv){
+    if(search && !name.toLowerCase().includes(search)) continue;
+    if(onlyMulti && dm.size<2) continue;
+    if(dspSel.value && !dm.has(dspSel.value)) continue;
+    const perDsp = [];
+    const allWk = {};
+    for(const [dsp, wk] of dm){
+      let tot=0; const active=new Set(); let first=Infinity, last=-Infinity;
+      for(const w of weeks){
+        const c = wk[w]; if(!c) continue;
+        const n = sumCats(c); tot+=n; active.add(w);
+        first=Math.min(first,w); last=Math.max(last,w);
+        if(!allWk[w]) allWk[w]=blankCats();
+        CATS.forEach(k=> allWk[w][k]+=c[k]);
+      }
+      perDsp.push({dsp, wk, tot, activeN:active.size, first, last});
+    }
+    perDsp.sort((a,b)=> a.first-b.first || b.tot-a.tot);   // chronological: where he was first
+    const total = perDsp.reduce((s,d)=>s+d.tot,0);
+    const activeWeeks = Object.keys(allWk).length;
+    // switch result: latest DSP (by first appearance) vs all earlier DSPs, per active week
+    let sw = null;
+    if(perDsp.length>1){
+      const latest = perDsp[perDsp.length-1], prev = perDsp.slice(0,-1);
+      const prevTot = prev.reduce((s,d)=>s+d.tot,0), prevWk = prev.reduce((s,d)=>s+d.activeN,0);
+      const prevAvg = prevWk ? prevTot/prevWk : 0, latAvg = latest.activeN ? latest.tot/latest.activeN : 0;
+      sw = {status: latAvg >= prevAvg*0.8 ? "bad" : "ok", prevAvg, latAvg};
+    }
+    const swFilter = document.getElementById("pSwitch").value;
+    if(swFilter && (!sw || sw.status!==swFilter)) continue;
+    list.push({name, perDsp, allWk, total, activeWeeks, sw, avg: activeWeeks? total/activeWeeks : 0});
+  }
+
+  const sort = document.getElementById("pSort").value;
+  list.sort((a,b)=>{
+    if(sort==="dsps") return b.perDsp.length-a.perDsp.length || b.total-a.total;
+    if(sort==="avg")  return b.avg-a.avg || b.total-a.total;
+    if(sort==="name") return a.name.localeCompare(b.name);
+    return b.total-a.total || b.perDsp.length-a.perDsp.length;
+  });
+
+  const multiN = [...drv.values()].filter(dm=>dm.size>1).length;
+  note.innerHTML = `Range <b>${weekLabel(weeks[0])}–${weekLabel(weeks[weeks.length-1])}</b>: `+
+    `<b>${multiN}</b> drivers had exceptions under 2+ DSPs · showing <b>${list.length}</b>. `+
+    `DSP rows are in the order the driver first appeared at each one. `+
+    `Switch tag compares the latest DSP's avg per active week with all earlier DSPs combined: `+
+    `<span class="ptag bad">No better after switch</span> = latest avg is at least 80% of before · `+
+    `<span class="ptag ok">Fewer after switch</span> = dropped more than 20%.<br>`+
+    `“–” = no exceptions recorded for that DSP that week. The file only has exception rows, so “–” can mean a clean week <i>or</i> not working at that DSP that week. `+
+    `This view ignores the global DSP filter so you always see the full history. Click any number to view &amp; copy its waybills.`;
+
+  if(!list.length){ listEl.innerHTML = `<div class="empty">No matching drivers</div>`; return; }
+
+  let html="";
+  for(const o of list){
+    let tag = "";
+    if(o.perDsp.length>1){
+      tag = `<span class="ptag multi">${o.perDsp.length} DSPs</span>`;
+      const {status, prevAvg, latAvg} = o.sw;
+      tag += status==="bad"
+        ? `<span class="ptag bad">No better after switch · ${prevAvg.toFixed(1)} → ${latAvg.toFixed(1)}/wk</span>`
+        : `<span class="ptag ok">Fewer after switch · ${prevAvg.toFixed(1)} → ${latAvg.toFixed(1)}/wk</span>`;
+    }
+    let thead = `<thead><tr><th>DSP</th>`;
+    weeks.forEach(w=> thead += `<th class="num">${weekLabel(w)}</th>`);
+    thead += `<th class="num">Total</th><th class="num">Avg / active wk</th></tr></thead>`;
+
+    let tbody = "<tbody>";
+    for(const d of o.perDsp){
+      tbody += `<tr><td class="pdsp">${escapeHtml(d.dsp)}</td>`;
+      weeks.forEach(w=> tbody += profileCell(d.wk[w], {k:"pdw",driver:o.name,dsp:d.dsp,wn:w}));
+      tbody += `<td class="num tot clk" data-p="${enc({k:'pd',driver:o.name,dsp:d.dsp})}">${d.tot}</td>`;
+      tbody += `<td class="avg">${d.activeN?(d.tot/d.activeN).toFixed(1):"–"}</td></tr>`;
+    }
+    if(o.perDsp.length>1){
+      tbody += `<tr class="allrow"><td>All DSPs</td>`;
+      weeks.forEach(w=> tbody += profileCell(o.allWk[w], {k:"pw",driver:o.name,wn:w}));
+      tbody += `<td class="num tot clk" data-p="${enc({k:'pdrv',driver:o.name})}">${o.total}</td>`;
+      tbody += `<td class="avg">${o.avg.toFixed(1)}</td></tr>`;
+    }
+    tbody += "</tbody>";
+
+    html += `<div class="pcard">
+      <div class="phead"><span class="pname">${escapeHtml(o.name)}</span>${tag}
+        <span class="pstat"><b>${o.total}</b> exceptions · <b>${o.activeWeeks}</b> week(s) with exceptions · avg <b>${o.avg.toFixed(1)}</b>/wk</span></div>
+      <div style="overflow-x:auto"><table>${thead}${tbody}</table></div>
+    </div>`;
+  }
+  listEl.innerHTML = html;
+}
+
 /* ============ Waybill modal ============ */
 function rowsFor(p){
+  if(p.k==="pdw")  return weekRows().filter(r=>r.driver===p.driver&&r.dsp===p.dsp&&r.wn===p.wn);
+  if(p.k==="pd")   return weekRows().filter(r=>r.driver===p.driver&&r.dsp===p.dsp);
+  if(p.k==="pw")   return weekRows().filter(r=>r.driver===p.driver&&r.wn===p.wn);
+  if(p.k==="pdrv") return weekRows().filter(r=>r.driver===p.driver);
   const rows = filteredRows();
   if(p.k==="cell")   return rows.filter(r=>r.driver===p.driver&&r.dsp===p.dsp&&r.wn===p.wn&&r.cat===p.cat);
   if(p.k==="total")  return rows.filter(r=>r.driver===p.driver&&r.dsp===p.dsp);
@@ -654,6 +853,10 @@ function titleFor(p){
   if(p.k==="route")  return `${p.dsp} · Route ${escapeHtml(p.val)}`;
   if(p.k==="routecat") return `${p.dsp} · Route ${escapeHtml(p.val)} · ${p.cat}`;
   if(p.k==="dcd")    return `${p.dsp} · ${p.cat} · ${escapeHtml(p.driver)}`;
+  if(p.k==="pdw")    return `${escapeHtml(p.driver)} · ${p.dsp} · ${weekLabel(p.wn)}`;
+  if(p.k==="pd")     return `${escapeHtml(p.driver)} · ${p.dsp} · All weeks`;
+  if(p.k==="pw")     return `${escapeHtml(p.driver)} · All DSPs · ${weekLabel(p.wn)}`;
+  if(p.k==="pdrv")   return `${escapeHtml(p.driver)} · All DSPs · All weeks`;
   return "Waybills";
 }
 
@@ -665,7 +868,7 @@ function openModal(payload){
   const list = rows.map(r=>
     `<div class="wbrow" data-wb="${escapeHtml(r.waybill)}">`+
       `<span>${escapeHtml(r.waybill)}</span>`+
-      `<span class="wbmeta">${weekLabel(r.wn)} · ${r.cat} · ${escapeHtml(r.route)}<span class="cptag">  copy</span></span>`+
+      `<span class="wbmeta">${["pw","pdrv"].includes(p.k)?escapeHtml(r.dsp)+" · ":""}${weekLabel(r.wn)} · ${r.cat} · ${escapeHtml(r.route)}<span class="cptag">  copy</span></span>`+
     `</div>`).join("");
 
   const overlay = document.createElement("div");
@@ -901,7 +1104,7 @@ function openTrendView(payload){
 }
 
 /* ============ Render / events ============ */
-function renderAll(){ renderDriverTable(); renderDspCards(); }
+function renderAll(){ renderDriverTable(); renderDspCards(); renderProfile(); }
 
 function bindEvents(){
   const drop = document.getElementById("drop");
@@ -914,8 +1117,9 @@ function bindEvents(){
 
   ["wkFrom","wkTo","dspFilter"].forEach(id=> document.getElementById(id).addEventListener("change", renderAll));
   document.getElementById("onlyFlag").addEventListener("change", renderDriverTable);
-  document.getElementById("drvSearch").addEventListener("input", renderDriverTable);
+  document.getElementById("drvSearch").addEventListener("input", ()=>{ renderDriverTable(); renderProfile(); });
   document.getElementById("drvDspFilter").addEventListener("change", renderDriverTable);
+  ["pDsp","pSort","pMulti","pSwitch"].forEach(id=> document.getElementById(id).addEventListener("change", renderProfile));
 
   document.querySelectorAll(".tab").forEach(t=>{
     t.onclick = ()=>{
@@ -924,6 +1128,7 @@ function bindEvents(){
       const tab = t.dataset.tab;
       document.getElementById("viewDriver").classList.toggle("hidden", tab!=="driver");
       document.getElementById("viewDsp").classList.toggle("hidden", tab!=="dsp");
+      document.getElementById("viewProfile").classList.toggle("hidden", tab!=="profile");
     };
   });
 
@@ -977,6 +1182,8 @@ function boot(){
     document.getElementById("driverTable").innerHTML="";
     document.getElementById("dspCards").innerHTML="";
     document.getElementById("driverNote").textContent="";
+    document.getElementById("profileList").innerHTML="";
+    document.getElementById("profileNote").textContent="";
   }
 }
 
